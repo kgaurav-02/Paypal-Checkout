@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import http from 'http';
 import { AddressInfo } from 'net';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -6,7 +7,7 @@ import { env } from '../src/config/env';
 import { PayPalUnavailableError } from '../src/errors/paypalErrors';
 import * as paypalClient from '../src/services/paypalClient';
 
-describe('Orders API Routes (Phase 2, 3 & 4)', () => {
+describe('Orders API Routes (Payment Safety & Reconciliation)', () => {
   let server: http.Server;
   let baseUrl: string;
 
@@ -56,12 +57,56 @@ describe('Orders API Routes (Phase 2, 3 & 4)', () => {
     });
   });
 
-  describe('POST /api/orders (Order Creation & Input Validation)', () => {
+  describe('POST /api/orders (Order Creation & Idempotency)', () => {
+    it('rejects missing checkoutAttemptId with 400 VALIDATION_ERROR', async () => {
+      const res = await fetch(`${baseUrl}/api/orders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          productId: 'demo-headphones',
+          quantity: 1,
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      const data = await res.json();
+      expect(data).toEqual({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: expect.stringContaining('checkoutAttemptId'),
+        },
+      });
+    });
+
+    it('rejects non-UUID checkoutAttemptId with 400 VALIDATION_ERROR', async () => {
+      const res = await fetch(`${baseUrl}/api/orders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          productId: 'demo-headphones',
+          quantity: 1,
+          checkoutAttemptId: 'not-a-valid-uuid',
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      const data = await res.json();
+      expect(data).toEqual({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: expect.stringContaining('valid UUID'),
+        },
+      });
+    });
+
     it('rejects missing productId with 400 VALIDATION_ERROR', async () => {
       const res = await fetch(`${baseUrl}/api/orders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ quantity: 1 }),
+        body: JSON.stringify({
+          quantity: 1,
+          checkoutAttemptId: randomUUID(),
+        }),
       });
 
       expect(res.status).toBe(400);
@@ -78,7 +123,11 @@ describe('Orders API Routes (Phase 2, 3 & 4)', () => {
       const res = await fetch(`${baseUrl}/api/orders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ productId: 'demo-headphones', quantity: 0 }),
+        body: JSON.stringify({
+          productId: 'demo-headphones',
+          quantity: 0,
+          checkoutAttemptId: randomUUID(),
+        }),
       });
 
       expect(res.status).toBe(400);
@@ -95,7 +144,11 @@ describe('Orders API Routes (Phase 2, 3 & 4)', () => {
       const res = await fetch(`${baseUrl}/api/orders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ productId: 'demo-headphones', quantity: 11 }),
+        body: JSON.stringify({
+          productId: 'demo-headphones',
+          quantity: 11,
+          checkoutAttemptId: randomUUID(),
+        }),
       });
 
       expect(res.status).toBe(400);
@@ -108,7 +161,46 @@ describe('Orders API Routes (Phase 2, 3 & 4)', () => {
       });
     });
 
+    it('ensures two identical create attempts send the same idempotency requestId header', async () => {
+      const createOrderSpy = vi.spyOn(paypalClient, 'createOrder').mockResolvedValue({
+        orderId: 'MOCK_ORDER_IDEMPOTENT',
+        status: 'CREATED',
+      });
+
+      const attemptId = 'a1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c8d';
+
+      // First attempt
+      const res1 = await fetch(`${baseUrl}/api/orders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          productId: 'demo-headphones',
+          quantity: 1,
+          checkoutAttemptId: attemptId,
+        }),
+      });
+      expect(res1.status).toBe(201);
+
+      // Second retry attempt with the exact same checkoutAttemptId
+      const res2 = await fetch(`${baseUrl}/api/orders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          productId: 'demo-headphones',
+          quantity: 1,
+          checkoutAttemptId: attemptId,
+        }),
+      });
+      expect(res2.status).toBe(201);
+
+      // Both attempts must pass the exact same requestId to the PayPal client
+      expect(createOrderSpy).toHaveBeenCalledTimes(2);
+      expect(createOrderSpy.mock.calls[0][0].requestId).toBe(attemptId);
+      expect(createOrderSpy.mock.calls[1][0].requestId).toBe(attemptId);
+    });
+
     it('uses catalog price (49.99) and creates order when amount <= MAX_AMOUNT', async () => {
+      const attemptId = randomUUID();
       const createOrderSpy = vi.spyOn(paypalClient, 'createOrder').mockResolvedValue({
         orderId: 'MOCK_ORDER_123',
         status: 'CREATED',
@@ -117,12 +209,12 @@ describe('Orders API Routes (Phase 2, 3 & 4)', () => {
       const res = await fetch(`${baseUrl}/api/orders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // Attempt to pass manipulated/client price
         body: JSON.stringify({
           productId: 'demo-headphones',
           quantity: 2, // 49.99 * 2 = 99.98 <= 100
-          price: 1.0, // Should be ignored
-          amount: '0.01', // Should be ignored
+          price: 1.0, // Ignored
+          amount: '0.01', // Ignored
+          checkoutAttemptId: attemptId,
         }),
       });
 
@@ -133,12 +225,12 @@ describe('Orders API Routes (Phase 2, 3 & 4)', () => {
         status: 'CREATED',
       });
 
-      // Verify that the amount passed to PayPal was calculated from catalog: 49.99 * 2 = 99.98
       expect(createOrderSpy).toHaveBeenCalledWith(
         expect.objectContaining({
           amount: '99.98',
           currency: 'USD',
           description: expect.stringContaining('Demo Wireless Headphones'),
+          requestId: attemptId,
         })
       );
     });
@@ -153,6 +245,7 @@ describe('Orders API Routes (Phase 2, 3 & 4)', () => {
         body: JSON.stringify({
           productId: 'demo-headphones',
           quantity: 3,
+          checkoutAttemptId: randomUUID(),
         }),
       });
 
@@ -171,7 +264,11 @@ describe('Orders API Routes (Phase 2, 3 & 4)', () => {
       const res = await fetch(`${baseUrl}/api/orders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ productId: 'non-existent-item', quantity: 1 }),
+        body: JSON.stringify({
+          productId: 'non-existent-item',
+          quantity: 1,
+          checkoutAttemptId: randomUUID(),
+        }),
       });
 
       expect(res.status).toBe(404);
@@ -192,7 +289,11 @@ describe('Orders API Routes (Phase 2, 3 & 4)', () => {
       const res = await fetch(`${baseUrl}/api/orders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ productId: 'demo-headphones', quantity: 1 }),
+        body: JSON.stringify({
+          productId: 'demo-headphones',
+          quantity: 1,
+          checkoutAttemptId: randomUUID(),
+        }),
       });
 
       expect(res.status).toBe(503);
@@ -206,7 +307,7 @@ describe('Orders API Routes (Phase 2, 3 & 4)', () => {
     });
   });
 
-  describe('POST /api/orders/:id/capture (Capture Verification)', () => {
+  describe('POST /api/orders/:id/capture (Capture Verification & Timeout Reconciliation)', () => {
     it('returns 409 ORDER_NOT_APPROVED when order status is not APPROVED', async () => {
       vi.spyOn(paypalClient, 'getOrder').mockResolvedValue({
         id: 'ORDER_PENDING_APPROVAL',
@@ -275,6 +376,98 @@ describe('Orders API Routes (Phase 2, 3 & 4)', () => {
         captureId: 'CAPTURE_TRANSACTION_999',
         amount: '49.99',
         currency: 'USD',
+      });
+    });
+
+    it('reconciles capture on timeout: returns verified capture result if order status is COMPLETED', async () => {
+      const orderId = 'ORDER_RECONCILE_SUCCESS';
+
+      // First getOrder call: pre-capture verification shows APPROVED
+      // Second getOrder call: reconciliation after timeout shows COMPLETED
+      const getOrderSpy = vi
+        .spyOn(paypalClient, 'getOrder')
+        .mockResolvedValueOnce({
+          id: orderId,
+          status: 'APPROVED',
+          intent: 'CAPTURE',
+        })
+        .mockResolvedValueOnce({
+          id: orderId,
+          status: 'COMPLETED',
+          intent: 'CAPTURE',
+          purchase_units: [
+            {
+              payments: {
+                captures: [
+                  {
+                    id: 'CAPTURE_RECONCILED_888',
+                    status: 'COMPLETED',
+                    amount: {
+                      value: '49.99',
+                      currency_code: 'USD',
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        });
+
+      // Capture request throws timeout / network error
+      vi.spyOn(paypalClient, 'captureOrder').mockRejectedValue(
+        new PayPalUnavailableError('PayPal Capture Order service timed out.')
+      );
+
+      const res = await fetch(`${baseUrl}/api/orders/${orderId}/capture`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      // Should recover and return verified capture result (HTTP 200), not a false 503
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data).toEqual({
+        orderId: orderId,
+        status: 'COMPLETED',
+        captureId: 'CAPTURE_RECONCILED_888',
+        amount: '49.99',
+        currency: 'USD',
+      });
+
+      expect(getOrderSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it('returns 503 if capture times out and reconciliation confirms order is NOT COMPLETED', async () => {
+      const orderId = 'ORDER_RECONCILE_FAILED';
+
+      vi.spyOn(paypalClient, 'getOrder')
+        .mockResolvedValueOnce({
+          id: orderId,
+          status: 'APPROVED',
+          intent: 'CAPTURE',
+        })
+        .mockResolvedValueOnce({
+          id: orderId,
+          status: 'APPROVED', // Still APPROVED, capture did not complete on PayPal
+          intent: 'CAPTURE',
+        });
+
+      vi.spyOn(paypalClient, 'captureOrder').mockRejectedValue(
+        new PayPalUnavailableError('PayPal Capture Order service timed out.')
+      );
+
+      const res = await fetch(`${baseUrl}/api/orders/${orderId}/capture`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      expect(res.status).toBe(503);
+      const data = await res.json();
+      expect(data).toEqual({
+        error: {
+          code: 'PAYPAL_UNAVAILABLE',
+          message: 'PayPal Capture Order service timed out.',
+        },
       });
     });
 

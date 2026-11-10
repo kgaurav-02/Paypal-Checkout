@@ -20,6 +20,12 @@ const createOrderSchema = z.object({
     .int('quantity must be an integer')
     .min(1, 'quantity must be between 1 and 10')
     .max(10, 'quantity must be between 1 and 10'),
+  checkoutAttemptId: z
+    .string({
+      required_error: 'checkoutAttemptId is required',
+      invalid_type_error: 'checkoutAttemptId must be a string',
+    })
+    .uuid('checkoutAttemptId must be a valid UUID'),
 });
 
 const captureParamsSchema = z.object({
@@ -35,7 +41,7 @@ const captureParamsSchema = z.object({
  * POST /api/orders
  * Creates a PayPal Orders v2 order with intent CAPTURE.
  * Evaluates server-side approval policy before calling PayPal.
- * If approval is required, returns HTTP 202 without calling PayPal.
+ * Reuses client-supplied checkoutAttemptId as the idempotency key so retries do not duplicate orders.
  */
 router.post('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -45,8 +51,12 @@ router.post('/', async (req: Request, res: Response, next: NextFunction) => {
       throw new ValidationError(issue.message);
     }
 
-    const { productId, quantity } = parseResult.data;
-    const result = await ordersService.createOrder({ productId, quantity });
+    const { productId, quantity, checkoutAttemptId } = parseResult.data;
+    const result = await ordersService.createOrder({
+      productId,
+      quantity,
+      checkoutAttemptId,
+    });
 
     if (result.status === 'approval_required') {
       res.status(202).json(result);
@@ -62,7 +72,7 @@ router.post('/', async (req: Request, res: Response, next: NextFunction) => {
 /**
  * POST /api/orders/:id/capture
  * Captures an approved PayPal order.
- * Returns verified capture result. Only returns status COMPLETED when PayPal confirms.
+ * Reconciles with PayPal upon network or timeout errors to avoid false 503s on captured orders.
  */
 router.post('/:id/capture', async (req: Request, res: Response, next: NextFunction) => {
   try {

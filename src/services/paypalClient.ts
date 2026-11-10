@@ -11,8 +11,8 @@ import {
 const PAYPAL_API_BASE = 'https://api-m.sandbox.paypal.com';
 
 /**
- * Standard HTTP request timeout for all outbound calls to PayPal APIs.
- * Prevents hanging connections and ensures prompt client failure recovery.
+ * Standard HTTP request timeout (10 seconds) for all outbound calls to PayPal.
+ * Prevents connection hanging and ensures timely reconciliation.
  */
 const REQUEST_TIMEOUT_MS = 10000;
 
@@ -124,15 +124,16 @@ export interface PayPalCreateOrderResult {
  *
  * IDEMPOTENCY NOTE:
  * The 'PayPal-Request-Id' header is passed on all state-mutating requests (create and capture).
- * This guarantees idempotency: in the event of network dropouts or client retries,
- * PayPal will not create duplicate orders or attempt double-captures for the same request ID.
+ * This guarantees idempotency: retries must not create duplicate orders or double-capture.
+ * For order creation, the key is derived from a client-supplied checkoutAttemptId so that
+ * retries of the same attempt reuse the same key across network drops.
  */
 export async function createOrder(
   params: PayPalCreateOrderParams
 ): Promise<PayPalCreateOrderResult> {
   const token = await getAccessToken();
 
-  // Idempotency key prevents duplicate orders during network retries
+  // Stable idempotency key: derived once per logical checkout attempt
   const requestId = params.requestId || randomUUID();
 
   const payload = {
@@ -260,8 +261,9 @@ export interface PayPalCaptureResult {
  *
  * IDEMPOTENCY NOTE:
  * The 'PayPal-Request-Id' header is passed on all state-mutating requests (create and capture).
- * This guarantees idempotency: in the event of network dropouts or client retries,
- * PayPal will not create duplicate orders or attempt double-captures for the same request ID.
+ * This guarantees idempotency: retries must not create duplicate orders or double-capture.
+ * For capture, the key is derived from the order ID and a stable operation name ("capture-" + orderId)
+ * so that any retry of the capture call for this order is guaranteed to be idempotent.
  */
 export async function captureOrder(
   orderId: string,
@@ -269,8 +271,8 @@ export async function captureOrder(
 ): Promise<PayPalCaptureResult> {
   const token = await getAccessToken();
 
-  // Idempotency key ensures duplicate capture requests are safely reconciled by PayPal
-  const reqId = requestId || randomUUID();
+  // Stable idempotency key: derived once per order ID
+  const reqId = requestId || `capture-${orderId}`;
 
   const response = await fetchWithTimeout(
     `${PAYPAL_API_BASE}/v2/checkout/orders/${encodeURIComponent(orderId)}/capture`,

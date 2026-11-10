@@ -148,6 +148,14 @@
           hideAlerts();
           const quantity = parseInt(quantitySelect.value, 10);
 
+          // Generate a stable checkoutAttemptId UUID once per logical checkout attempt
+          const checkoutAttemptId =
+            typeof crypto.randomUUID === 'function'
+              ? crypto.randomUUID()
+              : '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, (c) =>
+                  (c ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (c / 4)))).toString(16)
+                );
+
           let res;
           let data;
 
@@ -158,6 +166,7 @@
               body: JSON.stringify({
                 productId: 'demo-headphones',
                 quantity: quantity,
+                checkoutAttemptId: checkoutAttemptId,
               }),
             });
             data = await res.json();
@@ -252,4 +261,3 @@
 
   initApp();
 })();
-
