@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PayPilot Checkout - PayPal Sandbox</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="header">
+    <h1>PayPilot Checkout</h1>
+    <p>PayPal Orders v2 Integration</p>
+  </header>
+
+  <main class="checkout-container">
+    <!-- Demo Data Notice -->
+    <div class="demo-badge">Demo Product &bull; PayPal Sandbox Mode</div>
+
+    <!-- Active Checkout Section -->
+    <section id="checkout-section">
+      <div class="product-card">
+        <h2 class="product-title">Demo Wireless Headphones</h2>
+        <p class="product-desc">
+          High fidelity over-ear headphones with active noise cancellation and 40-hour battery life.
+          (Demo catalog item &bull; Price determined by server)
+        </p>
+
+        <div class="product-meta">
+          <div class="product-price" id="unit-price">$49.99 USD</div>
+          <div class="quantity-control">
+            <label for="quantity-select">Qty:</label>
+            <select id="quantity-select" class="quantity-select">
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+              <option value="5">5</option>
+              <option value="6">6</option>
+              <option value="7">7</option>
+              <option value="8">8</option>
+              <option value="9">9</option>
+              <option value="10">10</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Order Summary -->
+      <div class="order-summary">
+        <div class="summary-row">
+          <span>Subtotal</span>
+          <span id="subtotal">$49.99 USD</span>
+        </div>
+        <div class="summary-row">
+          <span>Shipping & Taxes</span>
+          <span>$0.00 USD</span>
+        </div>
+        <div class="summary-row total">
+          <span>Total</span>
+          <span id="total-amount">$49.99 USD</span>
+        </div>
+        <div id="policy-hint" class="policy-hint"></div>
+      </div>
+
+      <!-- Status Alerts -->
+      <!-- Amber alert for administrative approval required -->
+      <div id="alert-approval" class="alert-box amber" role="alert"></div>
+
+      <!-- Amber alert for user cancellation -->
+      <div id="alert-cancel" class="alert-box amber" role="status"></div>
+
+      <!-- Red alert for error states -->
+      <div id="alert-error" class="alert-box danger" role="alert"></div>
+
+      <!-- PayPal Smart Buttons Container -->
+      <div id="loading-indicator" class="loading-spinner">
+        <div class="spinner"></div>
+        <span>Connecting to PayPal Sandbox...</span>
+      </div>
+      <div id="paypal-button-container"></div>
+    </section>
+
+    <!-- Verified Success Screen (Rendered ONLY on verified capture) -->
+    <section id="success-screen" class="success-screen" role="region" aria-live="polite">
+      <div class="success-badge-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12"></polyline>
+        </svg>
+      </div>
+
+      <h2>Payment verified</h2>
+      <p class="sub">Your transaction has been securely captured and verified by PayPal.</p>
+
+      <div class="receipt-details">
+        <div class="receipt-row">
+          <span class="receipt-label">Order Status</span>
+          <span class="receipt-value" id="capture-status-val">COMPLETED</span>
+        </div>
+        <div class="receipt-row">
+          <span class="receipt-label">Capture ID</span>
+          <span class="receipt-value" id="capture-id-val"></span>
+        </div>
+        <div class="receipt-row">
+          <span class="receipt-label">PayPal Order ID</span>
+          <span class="receipt-value" id="order-id-val"></span>
+        </div>
+        <div class="receipt-row">
+          <span class="receipt-label">Amount Paid</span>
+          <span class="receipt-value" id="capture-amount-val"></span>
+        </div>
+      </div>
+
+      <button type="button" id="btn-reset" class="btn-reset">Make Another Purchase</button>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

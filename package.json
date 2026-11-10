@@ -1,0 +1,32 @@
+{
+  "name": "paypilot-checkout",
+  "version": "1.0.0",
+  "description": "PayPilot Checkout - PayPal Orders v2 Integration (Sandbox)",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "tsc && node dist/server.js",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "test": "vitest run --passWithNoTests"
+  },
+  "keywords": [
+    "paypal",
+    "orders-v2",
+    "express",
+    "typescript"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.13.4",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}
+
