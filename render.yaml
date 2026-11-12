@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: paypilot-checkout
+    runtime: node
+    plan: free
+    buildCommand: npm run build
+    startCommand: npm start
+    envVars:
+      - key: PAYPAL_ENV
+        value: sandbox
+      - key: MAX_AMOUNT
+        value: "100"
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+

@@ -1,3 +1,4 @@
+import dns from 'dns';
 import mongoose from 'mongoose';
 import { env } from '../config/env';
 
@@ -14,8 +15,17 @@ export async function connectDB(uri: string = env.MONGODB_URI): Promise<void> {
     return;
   }
 
+  // Handle Node.js on Windows SRV DNS resolution issues with Atlas
+  if (uri.startsWith('mongodb+srv://')) {
+    try {
+      dns.setServers(['8.8.8.8', '1.1.1.1']);
+    } catch {
+      // Continue with system default if custom DNS cannot be set
+    }
+  }
+
   try {
-    await mongoose.connect(uri, { serverSelectionTimeoutMS: 2500 });
+    await mongoose.connect(uri, { serverSelectionTimeoutMS: 5000 });
     isConnected = true;
     console.log('[Database] Connected successfully to MongoDB.');
   } catch (err: unknown) {
