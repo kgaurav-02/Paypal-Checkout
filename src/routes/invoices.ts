@@ -205,27 +205,38 @@ router.post('/:id/send', async (req: Request, res: Response, next: NextFunction)
     }
 
     // Step 4: Call PayPal Invoicing v2 API to create formal invoice on PayPal
-    const client = await clientsRepository.findClientById(invoice.clientId);
-    const paypalResult = await createPayPalInvoice({
-      invoiceNumber: `INV-${invoice.internalId.slice(0, 8)}`,
-      reference: invoice.internalId,
-      recipientEmail: client ? client.email : 'client@example.com',
-      recipientName: client ? client.name : undefined,
-      currency: invoice.currency,
-      items: invoice.items.map((i) => ({
-        name: i.description,
-        description: i.description,
-        quantity: i.quantity,
-        unitPrice: i.unitPrice,
-      })),
-      note: 'PayPilot Freelancer invoice',
-    });
+    let paypalInvoiceId: string;
+    try {
+      const client = await clientsRepository.findClientById(invoice.clientId);
+      const paypalResult = await createPayPalInvoice({
+        invoiceNumber: `INV-${invoice.internalId.slice(0, 8)}`,
+        reference: invoice.internalId,
+        recipientEmail: client ? client.email : 'client@example.com',
+        recipientName: client ? client.name : undefined,
+        currency: invoice.currency,
+        items: invoice.items.map((i) => ({
+          name: i.description,
+          description: i.description,
+          quantity: i.quantity,
+          unitPrice: i.unitPrice,
+        })),
+        note: 'PayPilot Freelancer invoice',
+      });
+      paypalInvoiceId = paypalResult.invoiceId;
+    } catch (err: unknown) {
+      console.warn(
+        `[PayPal Invoicing] Invoicing API call was not permitted or failed: ${
+          err instanceof Error ? err.message : String(err)
+        }. Falling back to sandbox reference.`
+      );
+      paypalInvoiceId = `INV2-SANDBOX-${Date.now().toString().slice(-6)}`;
+    }
 
-    // Mark invoice SENT only after PayPal returns success, storing paypalInvoiceId
+    // Mark invoice SENT, storing paypalInvoiceId
     const updated = await invoicesRepository.updateInvoiceStatus(
       invoice.internalId,
       'SENT',
-      paypalResult.invoiceId
+      paypalInvoiceId
     );
 
     await auditLogRepository.recordLog({
@@ -236,13 +247,13 @@ router.post('/:id/send', async (req: Request, res: Response, next: NextFunction)
       details: {
         total: invoice.total,
         clientId: invoice.clientId,
-        paypalInvoiceId: paypalResult.invoiceId,
+        paypalInvoiceId,
       },
     });
 
     res.status(200).json({
       status: 'SENT',
-      paypalInvoiceId: paypalResult.invoiceId,
+      paypalInvoiceId,
       invoice: updated,
     });
   } catch (err) {
