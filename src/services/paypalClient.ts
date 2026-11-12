@@ -325,3 +325,91 @@ export async function captureOrder(
 
   return (await response.json()) as PayPalCaptureResult;
 }
+
+export interface CreatePayPalInvoiceInput {
+  invoiceNumber: string;
+  reference?: string;
+  recipientEmail: string;
+  recipientName?: string;
+  items: Array<{
+    name: string;
+    description?: string;
+    quantity: number;
+    unitPrice: number;
+  }>;
+  currency?: string;
+  note?: string;
+}
+
+export interface PayPalInvoiceResult {
+  invoiceId: string;
+  href: string;
+}
+
+/**
+ * Creates a formal invoice on PayPal via the PayPal Invoicing v2 REST API.
+ */
+export async function createPayPalInvoice(
+  input: CreatePayPalInvoiceInput
+): Promise<PayPalInvoiceResult> {
+  const token = await getAccessToken();
+
+  const payload = {
+    detail: {
+      invoice_number: input.invoiceNumber,
+      reference: input.reference || `REF-${Date.now().toString().slice(-6)}`,
+      invoice_date: new Date().toISOString().split('T')[0],
+      currency_code: input.currency || 'USD',
+      note: input.note || 'Thank you for your business.',
+    },
+    invoicer: {
+      name: {
+        given_name: 'PayPilot',
+        surname: 'Freelancer',
+      },
+    },
+    primary_recipients: [
+      {
+        billing_info: {
+          name: input.recipientName ? { given_name: input.recipientName } : undefined,
+          email_address: input.recipientEmail,
+        },
+      },
+    ],
+    items: input.items.map((item) => ({
+      name: item.name,
+      description: item.description || item.name,
+      quantity: String(item.quantity),
+      unit_amount: {
+        currency_code: input.currency || 'USD',
+        value: Number(item.unitPrice).toFixed(2),
+      },
+    })),
+  };
+
+  const response = await fetchWithTimeout(
+    `${PAYPAL_API_BASE}/v2/invoicing/invoices`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'PayPal-Request-Id': randomUUID(),
+      },
+      body: JSON.stringify(payload),
+    },
+    'Invoice Creation'
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error(`[PayPal Invoicing] Creation failed with HTTP ${response.status}: ${errorText}`);
+    throw new PayPalUnavailableError(`Failed to create PayPal invoice (HTTP ${response.status})`);
+  }
+
+  const result = (await response.json()) as { href?: string; rel?: string; id?: string };
+  const href = result.href || '';
+  const invoiceId = result.id || href.split('/').pop() || `INV-${Date.now()}`;
+
+  return { invoiceId, href };
+}

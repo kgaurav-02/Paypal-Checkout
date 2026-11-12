@@ -1,220 +1,236 @@
 # PayPilot Checkout
 
-PayPilot Checkout is a lightweight, secure web application demonstrating a complete server-side integration of the **PayPal Orders v2 REST API** in sandbox mode. Built with Node.js, Express, and TypeScript, it implements an authoritative payment model where the browser never handles client secrets and never makes authoritative decisions on payment success.
+PayPilot Checkout is an authoritative, policy-governed payment gateway and financial operations engine demonstrating a production-grade server-side integration of the **PayPal Orders v2** and **Invoicing v2** REST APIs in sandbox mode.
 
-> **Notice**: This project operates strictly in **PayPal Sandbox mode** using hardcoded demo catalog data. No real financial transactions occur.
+Built with Node.js, Express, TypeScript, and MongoDB, PayPilot solves the core security and operational flaws common in naive payment integrations:
+1. **Client-Side Price Tampering**: PayPilot enforces authoritative server pricing from catalog data, stripping and ignoring client-supplied amounts.
+2. **Unverified Payment Captures**: Payment status is never determined by the browser. Captures are executed and verified strictly on the backend, and status is reconciled upon network timeout.
+3. **Lack of Internal Financial Governance**: The **Guardian** engine blocks transactions exceeding financial policy thresholds until an administrator approves them.
+4. **Blind Risk**: The **FraudShield** engine analyzes incoming orders using local heuristics, scoring risk from 0 to 100 and routing suspicious orders to Guardian review.
+5. **Operational Complexity**: An **AI Assistant** enables conversational management of transactions, approvals, invoices, and risk assessments through a strictly gated tool registry.
 
----
-
-## Features
-
-- **Authoritative Server Pricing**: Features a demo product catalog (*Demo Wireless Headphones*, $49.99 USD). The server looks up prices authoritatively and completely ignores any client-submitted pricing.
-- **Automated Server-Side Approval Policy**: Evaluates order totals against a configurable threshold (`MAX_AMOUNT`, default $100.00 USD). Orders exceeding this limit return `HTTP 202 Accepted` with a structured `approval_required` decision and abort the PayPal popup.
-- **Server-Side Verified Capture**: Payment capture is executed and verified exclusively by the backend. The frontend displays "Payment verified" **only** when PayPal confirms `status: "COMPLETED"`.
-- **Pre-Approval Enforcement**: Enforces that orders must have an `APPROVED` status before capture can be attempted, preventing race conditions or fraudulent client claims.
-- **Strict Idempotency**: Automatically attaches `PayPal-Request-Id` headers to all state-mutating requests (`create` and `capture`) to prevent duplicate transactions on network retries.
-- **Resilient Error Handling**: Centralized error mapping guarantees consistent JSON responses (`{ error: { code, message } }`) with no stack traces or credentials exposed. Outbound PayPal requests are protected by a 10-second timeout.
+> **Notice**: This project operates strictly in **PayPal Sandbox mode** (`https://api-m.sandbox.paypal.com`). No real financial transactions occur.
 
 ---
 
-## Architecture
+## Module Status Overview
 
-The following sequence diagram illustrates the complete checkout lifecycle, including the happy path, server approval blocking, and cancellation.
+| Module | Status | Notes |
+| :--- | :--- | :--- |
+| **Checkout (Orders v2)** | **Implemented** | Authoritative catalog pricing, verified capture, idempotency keys, and capture timeout reconciliation. |
+| **Guardian Approval Engine** | **Implemented** | Policy evaluation (`FinancialPolicy`), persistent `ApprovalRequest`, immutable `AuditLog`, 403 rejection, and 409 conflict protection. |
+| **PayPilot Transactions** | **Implemented** | Stored order transactions and monthly summary aggregated strictly from local database records (no external transaction search). |
+| **FraudShield Risk Engine** | **Implemented** | Pure rule functions (spike, velocity, midnight hours, repeated failures, currency), 0–100 scoring, and automatic Guardian escalation for HIGH/CRITICAL. |
+| **FreelancerPay Invoicing** | **Implemented** | Local client/project management, server-computed line item totals, overdue batch marking, and live **PayPal Invoicing v2** draft creation. |
+| **AI Assistant** | **Implemented** | Deterministic regex intent routing with clarifying questions, safety refusals, optional Gemini LLM parsing (`GEMINI_API_KEY`), and `AuditLog` logging. |
+| **PayPal Invoicing API** | **Live Sandbox Verified** | Invoicing v2 API probed and verified with live sandbox scope (`HTTP 201 Created`, invoice ID returned). |
+| **Webhook Verification** | **Implemented** | Mounted before `express.json()`, raw body cryptographic signature verification via PayPal API, and duplicate event deduplication. |
+
+---
+
+## Architecture Diagram
 
 ```mermaid
-sequenceDiagram
-    autonumber
-    actor Buyer
-    participant Frontend as Browser (Frontend)
-    participant Backend as Express Backend
-    participant PayPal as PayPal Sandbox API
+flowchart TD
+    subgraph Client ["Client Layer (Browser)"]
+        UI["PayPilot Web Dashboard<br/>(Public UI)"]
+        SDK["PayPal JS SDK<br/>(Buttons)"]
+    end
 
-    %% Configuration & Initialization
-    Note over Buyer,PayPal: 1. Initialization
-    Frontend->>Backend: GET /api/config
-    Backend-->>Frontend: { paypalClientId, currency: "USD", maxAmount: 100 }
-    Frontend->>PayPal: Load PayPal JS SDK (client-id)
+    subgraph Backend ["PayPilot Backend (Node.js / Express / TypeScript)"]
+        Router["Express Routing & Middleware<br/>/api/orders, /api/approvals, /api/invoices, /api/risk"]
+        
+        subgraph Engines ["Core Engines"]
+            Checkout["Checkout Engine<br/>Authoritative Pricing & Capture Verification"]
+            Guardian["Guardian Engine<br/>Financial Policy & Approval Workflow"]
+            FraudShield["FraudShield Engine<br/>Rule Scoring: 0-100 (LOW/MOD/HIGH/CRIT)"]
+            Freelancer["FreelancerPay Engine<br/>Clients, Projects & Invoices"]
+            Assistant["AI Assistant<br/>Gated Tool Registry & Intent Router"]
+        end
 
-    %% Case A: Approval Required (Amount > MAX_AMOUNT)
-    Note over Buyer,PayPal: 2A. Policy Rule: Total > MAX_AMOUNT ($100.00)
-    Buyer->>Frontend: Select Quantity: 3 ($149.97) & click PayPal button
-    Frontend->>Backend: POST /api/orders { productId: "demo-headphones", quantity: 3 }
-    Backend->>Backend: evaluateOrder(149.97, 100.00) -> approval_required
-    Backend-->>Frontend: HTTP 202 { status: "approval_required", reason: "..." }
-    Frontend->>Buyer: Display amber alert: Administrative approval required (PayPal popup aborted)
+        Repo["Repository Layer<br/>Orders, Approvals, AuditLog, Invoices, Risk"]
+    end
 
-    %% Case B: Cancellation
-    Note over Buyer,PayPal: 2B. User Cancellation
-    Buyer->>Frontend: Select Quantity: 1 ($49.99) & click PayPal button
-    Frontend->>Backend: POST /api/orders { productId: "demo-headphones", quantity: 1 }
-    Backend->>PayPal: POST /v2/checkout/orders (intent: CAPTURE, amount: 49.99)
-    PayPal-->>Backend: 201 Created { id: "ORDER-ID", status: "CREATED" }
-    Backend-->>Frontend: 201 Created { orderId: "ORDER-ID", status: "CREATED" }
-    Frontend->>PayPal: Open PayPal Sandbox Login Popup
-    Buyer->>PayPal: Click "Cancel and return to store"
-    PayPal-->>Frontend: onCancel callback triggered
-    Frontend->>Buyer: Display amber alert: "Transaction cancelled. No charges made."
+    subgraph Storage ["Database Layer"]
+        DB[("MongoDB / In-Memory MongoDB<br/>Orders, ApprovalRequests, AuditLogs, Invoices, RiskAssessments")]
+    end
 
-    %% Case C: Happy Path (Approval & Capture)
-    Note over Buyer,PayPal: 2C. Happy Path (Verified Payment)
-    Buyer->>Frontend: Select Quantity: 1 ($49.99) & click PayPal button
-    Frontend->>Backend: POST /api/orders { productId: "demo-headphones", quantity: 1 }
-    Backend->>Backend: evaluateOrder(49.99, 100.00) -> allowed
-    Backend->>PayPal: POST /v2/checkout/orders [PayPal-Request-Id]
-    PayPal-->>Backend: 201 Created { id: "ORDER-ID", status: "CREATED" }
-    Backend-->>Frontend: 201 Created { orderId: "ORDER-ID", status: "CREATED" }
-    Frontend->>PayPal: Open PayPal Sandbox Login Popup
-    Buyer->>PayPal: Authenticate with Sandbox Buyer & click "Complete Purchase"
-    PayPal-->>Frontend: onApprove callback triggered { orderID: "ORDER-ID" }
-    
-    Frontend->>Backend: POST /api/orders/{orderId}/capture
-    Backend->>PayPal: GET /v2/checkout/orders/{orderId}
-    PayPal-->>Backend: 200 OK { id: "ORDER-ID", status: "APPROVED" }
-    Backend->>PayPal: POST /v2/checkout/orders/{orderId}/capture [PayPal-Request-Id]
-    PayPal-->>Backend: 200 OK { id: "ORDER-ID", status: "COMPLETED", captures: [...] }
-    Backend->>Backend: Verify status == "COMPLETED"
-    Backend-->>Frontend: 200 OK { orderId, status: "COMPLETED", captureId, amount, currency }
-    Frontend->>Buyer: Render green "Payment verified" receipt screen
+    subgraph PayPal ["PayPal Sandbox API"]
+        OAuth["OAuth2 Token Service<br/>POST /v1/oauth2/token"]
+        OrdersAPI["Orders v2 API<br/>POST /v2/checkout/orders<br/>POST /v2/checkout/orders/{id}/capture"]
+        InvoicingAPI["Invoicing v2 API<br/>POST /v2/invoicing/invoices"]
+        WebhookVerify["Webhook Verification API<br/>POST /v1/notifications/verify-webhook-signature"]
+    end
+
+    %% Interactions
+    UI -->|1. Select Product & Quantity| Checkout
+    Checkout -->|2. Check FinancialPolicy Threshold| Guardian
+    Guardian -->|Exceeds: 202 Accepted| UI
+    Guardian -->|Exceeds: Store PENDING_APPROVAL| Repo
+    Checkout -->|Within Limit: POST /v2/checkout/orders| OrdersAPI
+    OrdersAPI -->|orderId| SDK
+    SDK -->|3. Buyer Authorizes Payment| Backend
+    Backend -->|4. Capture Payment & Verify| OrdersAPI
+    OrdersAPI -->|COMPLETED status| Backend
+    Backend -->|5. Run Risk Rules| FraudShield
+    FraudShield -->|Score & Assessment| Repo
+    FraudShield -->|HIGH/CRITICAL: Request Review| Guardian
+    Backend -->|Store COMPLETED Order| Repo
+    Repo --> DB
+    UI -->|Query Assistant| Assistant
+    Assistant -->|Execute Whitelisted Tools| Engines
+    Freelancer -->|Send Invoice| InvoicingAPI
 ```
 
 ---
 
-## Tech Stack
+## Project Modules
 
-- **Runtime & Language**: Node.js (v18+) with TypeScript (strict mode)
-- **Web Framework**: Express v4
-- **Schema Validation**: Zod (for environment variables and route request payloads)
-- **Environment Management**: dotenv
-- **Testing**: Vitest
-- **External Integration**: PayPal Orders v2 REST API (Sandbox) & PayPal JavaScript SDK
+### 1. Checkout (PayPal Orders v2)
+- **Authoritative Pricing**: Demo catalog (`src/data/products.ts`) defines items and prices. Client requests only specify `{ productId, quantity, checkoutAttemptId }`. Client-provided prices are ignored.
+- **Pre-Approval Gate**: Orders must have an `APPROVED` status before capture can be initiated, preventing race conditions or fraudulent claims.
+- **Verified Capture**: `POST /api/orders/:id/capture` verifies the capture directly with PayPal. The frontend displays "Payment verified" **only** when PayPal returns `status: "COMPLETED"`.
+- **Idempotency & Timeout Reconciliation**: Every mutating call passes a unique `PayPal-Request-Id`. If a capture call times out, the backend automatically queries `GET /v2/checkout/orders/{id}` to reconcile status without double-charging.
+
+### 2. Guardian Policy Engine
+- **FinancialPolicy**: Defines rules such as `requiresApprovalAbove` (default: $100.00 USD).
+- **Approval Workflow**: Orders or invoices exceeding the threshold are intercepted and marked `PENDING_APPROVAL`. An `ApprovalRequest` is created and an `AuditLog` row is recorded.
+- **Administrative Review**: Exposes `GET /api/approvals`, `POST /api/approvals/:id/approve`, and `POST /api/approvals/:id/reject`.
+- **Zero-Bypass Security**: An approved order transitions to `APPROVED` locally. It never calls PayPal automatically—only the buyer can complete checkout.
+
+### 3. PayPilot Transactions
+- **Local Source of Truth**: Serves transaction history via `GET /api/transactions` and monthly volume/count summaries via `GET /api/transactions/summary`.
+- **Independent Aggregation**: Aggregates directly from local MongoDB order records without calling PayPal's Transaction Search API.
+
+### 4. FraudShield Risk Engine
+- **Pure Rule Functions**: Evaluates 5 pure rules without external dependencies:
+  1. `checkAmountSpike`: Flags amounts $> 2\times$ the historical completed average.
+  2. `checkOrderVelocity`: Flags $> 3$ orders in 10 minutes.
+  3. `checkMidnightHours`: Flags orders placed between 00:00 and 05:00 local time.
+  4. `checkRepeatedFailures`: Flags $\ge 2$ failed/cancelled orders in the last hour.
+  5. `checkNonUsdCurrency`: Flags non-USD currencies.
+- **Classification**: Scores from 0 to 100 mapped to `LOW` (0–29), `MODERATE` (30–59), `HIGH` (60–79), and `CRITICAL` (80–100).
+- **Guardian Escalation**: High/Critical orders trigger a Guardian `ApprovalRequest` without blocking checkout on score alone.
+- **Disclaimer**: Labeled explicitly: *"Local rule-based assessment. Not a PayPal fraud verdict."*
+
+### 5. FreelancerPay Invoicing
+- **Data Model**: Mongoose models for `Client`, `Project`, and `Invoice`.
+- **Authoritative Totals**: Invoices calculate `total` on the server from `items [{ description, quantity, unitPrice }]`.
+- **Policy Enforcement**: Invoices exceeding the active policy threshold are held in `DRAFT` and cannot be sent until approved in Guardian (`HTTP 403 INVOICE_APPROVAL_REQUIRED`).
+- **PayPal Invoicing v2 Integration**: Sending an approved invoice calls PayPal Invoicing v2 (`POST /v2/invoicing/invoices`), saving `paypalInvoiceId` and updating status to `SENT`.
+- **Overdue Detection**: `POST /api/invoices/mark-overdue` transitions past-due `SENT` invoices to `OVERDUE` based on stored records.
+
+### 6. AI Assistant
+- **Strictly Gated Tool Registry**: Exposes 7 read tools and 2 write tools (`createInvoiceDraft`, `requestOrderApproval`). Strictly excludes `approve`, `reject`, `capture`, or direct PayPal API calls.
+- **Deterministic Intent Router**: Regex pattern matching for common queries with clarifying questions when amounts, clients, or IDs are missing.
+- **Optional Gemini LLM Parsing**: If `GEMINI_API_KEY` is provided, user prompts are parsed into tool arguments and validated with Zod. If the model returns an invalid tool or schema, execution safely falls back to the deterministic router.
+- **Audit Logging**: Every tool execution is recorded in the immutable `AuditLog`.
 
 ---
 
 ## Setup & Installation
 
 ### Prerequisites
-- [Node.js](https://nodejs.org/) (v18.0.0 or higher recommended)
-- [npm](https://www.npmjs.com/) (v9.0.0 or higher)
-- A [PayPal Developer](https://developer.paypal.com/) account
+- Node.js (v18.0.0 or higher)
+- npm (v9.0.0 or higher)
+- PayPal Developer Sandbox Account ([developer.paypal.com](https://developer.paypal.com))
 
-### 1. PayPal Sandbox Account Setup
-1. Log in to the [PayPal Developer Dashboard](https://developer.paypal.com/dashboard/).
-2. Under **Apps & Credentials**, toggle to **Sandbox** and select or create an app to obtain:
-   - **Client ID**
-   - **Secret**
-3. Under **Testing Tools > Sandbox Accounts**, note your auto-generated **Personal (Buyer)** account credentials (`email` and `password`) to use during checkout.
+### 1. Clone & Install Dependencies
+```bash
+cd paypilot-checkout
+npm install
+```
 
 ### 2. Configure Environment Variables
 Copy `.env.example` to `.env`:
 ```bash
 cp .env.example .env
 ```
-
-Configure your `.env` file:
+Update `.env` with your PayPal Sandbox credentials:
 ```env
 PAYPAL_CLIENT_ID=your_paypal_sandbox_client_id
 PAYPAL_CLIENT_SECRET=your_paypal_sandbox_client_secret
 PAYPAL_ENV=sandbox
 MAX_AMOUNT=100
 PORT=3000
+MONGODB_URI=mongodb://127.0.0.1:27017/paypilot_checkout
+PAYPAL_WEBHOOK_ID=your_webhook_id_here
+GEMINI_API_KEY=your_gemini_api_key_here
 ```
+> **Note**: If a local MongoDB instance is not reachable, PayPilot automatically spins up an in-memory MongoDB server (`mongodb-memory-server`) for zero-configuration local development.
 
-> **Security Note**: Never commit `.env` or expose `PAYPAL_CLIENT_SECRET`. `.env` is ignored by `.gitignore`.
-
-### 3. Install Dependencies
+### 3. Build & Run
 ```bash
-npm install
-```
-
----
-
-## Running the Application
-
-### Development Mode
-Runs the TypeScript compiler and launches the server:
-```bash
-npm run dev
-```
-
-### Production Build & Execution
-```bash
-# Compile TypeScript to dist/
+# Build TypeScript
 npm run build
 
-# Start compiled server
+# Start application
 npm start
 ```
-
-Once running, navigate to:
-```
-http://localhost:3000
-```
+Navigate to `http://localhost:3000` in your browser.
 
 ---
 
-## Testing
+## Testing & Verification
 
-### Automated Test Suite
-Runs the Vitest test suite covering approval policy boundaries, catalog price enforcement, pre-approval capture rejections (409), verified capture validations, and public configuration security:
+### Running the Test Suite
+The test suite contains 73 automated tests covering policy boundaries, verified capture, idempotency, webhook signature verification, FraudShield scoring, FreelancerPay rules, and the AI Assistant:
 ```bash
 npm test
 ```
 
-### Manual Sandbox Payment Walkthrough
-
-1. **Happy Path ($49.99 USD)**:
-   - Keep quantity at `1` ($49.99).
-   - Click the yellow **PayPal Checkout** button.
-   - In the popup, log in with your sandbox buyer credentials.
+### Manual Sandbox Checkout Walkthrough
+1. **Automated Approval Path ($\le \$100.00$)**:
+   - Set Quantity to `1` ($49.99).
+   - Click **PayPal Checkout**.
+   - Log in with your PayPal Sandbox Personal account.
    - Click **Complete Purchase**.
    - Observe the green **Payment verified** screen displaying the capture ID and amount.
-
-2. **Above-Limit Case (Approval Rule)**:
-   - Change quantity to `3` ($149.97).
+2. **Guardian Policy Gating Path ($> \$100.00$)**:
+   - Set Quantity to `3` ($149.97).
    - Click **PayPal Checkout**.
-   - Notice the PayPal popup does not open; an amber notification informs you that the transaction exceeds the $100 limit.
+   - The PayPal popup does not open; an amber notification informs you that administrative approval is required.
+   - Navigate to the **Guardian Policy & Approval Engine** section.
+   - Click **Approve** on the pending request.
+   - Return to the product card and click **PayPal Checkout**; checkout now proceeds to PayPal successfully.
+3. **Transaction Cancellation**:
+   - Click **PayPal Checkout** with quantity `1`.
+   - In the popup, click **Cancel and return to test store**.
+   - Observe the cancellation message: *"PayPal transaction was cancelled. No charges were made."*
 
-3. **User Cancellation**:
-   - Change quantity to `1`.
-   - Click **PayPal Checkout**.
-   - In the popup, click **Cancel and return to test store** or close the window.
-   - Notice the amber notification indicating cancellation with no charge.
-
----
-
-## Security Design
-
-1. **Zero Secret Exposure**:
-   - `PAYPAL_CLIENT_SECRET` is used exclusively on the server to negotiate short-lived bearer tokens via HTTP Basic Auth.
-   - The `/api/config` endpoint and client files receive only the public `PAYPAL_CLIENT_ID`.
-2. **Authoritative Server Pricing**:
-   - The browser sends `{ productId, quantity }`.
-   - The server computes `product.price * quantity` from internal records. Any client-submitted `price` or `amount` is stripped and ignored.
-3. **Zero Trust in Client Payment Status**:
-   - The backend validates the order status directly with PayPal (`GET /v2/checkout/orders/{id}`) to ensure status is `APPROVED` before initiating capture.
-   - Frontend renders the success view only when the backend capture response confirms `status: "COMPLETED"`.
-4. **Idempotency**:
-   - Every mutating PayPal call (`create` and `capture`) attaches a unique `PayPal-Request-Id` UUID, preventing duplicate charges upon network timeouts or browser retries.
-5. **No Stack Traces in Responses**:
-   - Centralized error handlers strip internal error stacks and map application errors into sanitized `{ error: { code, message } }` objects.
+### Webhook Tunnel Setup (Live Webhooks)
+To test live asynchronous webhooks from PayPal Sandbox:
+1. **Start ngrok tunnel**:
+   ```bash
+   ngrok http 3000
+   ```
+2. **Register Webhook in PayPal Developer Dashboard**:
+   - Log in to [developer.paypal.com](https://developer.paypal.com) -> Apps & Credentials -> Your Sandbox App.
+   - Add Webhook: `https://<your-ngrok-subdomain>.ngrok-free.app/api/webhooks/paypal`
+   - Select events: `Payment capture completed`, `Checkout order approved`.
+   - Copy the generated Webhook ID and set `PAYPAL_WEBHOOK_ID=<id>` in `.env`.
+3. **Trigger Webhook**:
+   - Complete a sandbox purchase.
+   - Inspect backend logs for `[Webhook Signature Verified: SUCCESS]` and database update confirmation.
 
 ---
 
 ## Known Limitations
 
-- **Sandbox Only**: Configured explicitly for `https://api-m.sandbox.paypal.com`. Production credentials are deliberately rejected.
-- **Single Demo Product**: The catalog in `src/data/products.ts` contains one demo SKU.
-- **Synchronous Policy Blocking**: The approval rule blocks transactions over `$100.00` immediately rather than enrolling them in an asynchronous administrative review workflow.
-- **Stateless In-Memory Storage**: There is no database; order IDs and tokens are not persisted across server restarts.
-- **No Webhooks**: Relies on synchronous API responses rather than asynchronous event webhooks.
+- **Sandbox Environment Only**: Hardcoded to `https://api-m.sandbox.paypal.com`. Live production credentials cannot be used without explicit architectural changes.
+- **Local Database Persistence**: Built for single-instance MongoDB or in-memory MongoDB fallback. Multi-region clustering, sharding, and database replication are not configured.
+- **No User Authentication / RBAC**: Administrative endpoints (`/api/approvals`, `/api/audit`, `/api/transactions`, `/api/invoices`) are open for evaluation purposes. Production requires JWT/session authentication and role-based permissions.
+- **Rule-Based Fraud Scoring**: FraudShield uses local statistical heuristics (velocity, order spikes, midnight hours). It does not integrate external credit bureaus, machine learning models, or PayPal Fraud Protection verdicts.
+- **Single Catalog Product**: Checkout catalog currently contains one demo product SKU (*Demo Wireless Headphones*).
+- **Assistant Scope**: The AI Assistant is a targeted tool intent router for PayPilot backend services, not an open-ended conversational chatbot.
 
 ---
 
-## Next Steps for Production Hardening
+## Roadmap (Master Spec Enhancements)
 
-1. **Webhook Signature Verification**: Add a listener for `PAYMENT.CAPTURE.COMPLETED` and `CHECKOUT.ORDER.APPROVED` using PayPal's `/v1/notifications/verify-webhook-signature` for asynchronous fulfillment.
-2. **Database Persistence**: Integrate PostgreSQL or MongoDB to record orders, customer records, and transaction logs.
-3. **Automated Retries**: Implement exponential backoff for transient 5xx errors or network timeouts when contacting PayPal.
-4. **Multi-Currency Support**: Expand catalog and approval policies to handle multi-currency conversions and localized PayPal payment methods.
-5. **Production Vaulting / Subscriptions**: Integrate PayPal Vault and Recurring Billing for saved payment methods.
-
+- [ ] **React / Next.js Admin Dashboard**: Replace server-served vanilla JS frontend with a modern, reactive dashboard with real-time WebSocket updates.
+- [ ] **User Authentication & RBAC**: Implement OAuth2 / JWT authentication with defined roles: `Admin`, `Compliance Officer`, `Freelancer`, and `Buyer`.
+- [ ] **PayPal Payouts Integration**: Add PayPal Payouts API support for automated batch freelancer disbursements upon invoice payment.
+- [ ] **Multi-Tenant Architecture**: Add merchant account isolation and individual API credential management for multi-vendor platforms.
+- [ ] **Cloud Containerization & Deployment**: Provide Dockerfile, Docker Compose, and Helm charts for Google Cloud Run / AWS ECS deployment.
+- [ ] **Unified Five-Engine UI**: Deliver an integrated operations dashboard uniting Checkout, Guardian, Transactions, FraudShield, and FreelancerPay.

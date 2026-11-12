@@ -26,6 +26,8 @@ const createOrderSchema = z.object({
       invalid_type_error: 'checkoutAttemptId must be a string',
     })
     .uuid('checkoutAttemptId must be a valid UUID'),
+  orderInternalId: z.string().optional(),
+  approvalRequestId: z.string().optional(),
 });
 
 const captureParamsSchema = z.object({
@@ -51,11 +53,13 @@ router.post('/', async (req: Request, res: Response, next: NextFunction) => {
       throw new ValidationError(issue.message);
     }
 
-    const { productId, quantity, checkoutAttemptId } = parseResult.data;
+    const { productId, quantity, checkoutAttemptId, orderInternalId, approvalRequestId } = parseResult.data;
     const result = await ordersService.createOrder({
       productId,
       quantity,
       checkoutAttemptId,
+      orderInternalId,
+      approvalRequestId,
     });
 
     if (result.status === 'approval_required') {

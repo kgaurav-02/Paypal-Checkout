@@ -62,3 +62,15 @@ export class AmountLimitExceededError extends AppError {
     );
   }
 }
+
+export class OrderRejectedError extends AppError {
+  constructor(message = 'Order approval was rejected. Order creation is blocked.') {
+    super(message, 403, 'ORDER_REJECTED');
+  }
+}
+
+export class ApprovalConflictError extends AppError {
+  constructor(message = 'Approval request has already been decided.') {
+    super(message, 409, 'APPROVAL_CONFLICT');
+  }
+}

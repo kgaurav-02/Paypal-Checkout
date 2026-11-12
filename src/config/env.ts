@@ -9,14 +9,16 @@ export const envSchema = z.object({
       required_error: 'PAYPAL_CLIENT_ID is required',
       invalid_type_error: 'PAYPAL_CLIENT_ID must be a string',
     })
-    .min(1, 'PAYPAL_CLIENT_ID cannot be empty'),
+    .min(1, 'PAYPAL_CLIENT_ID cannot be empty')
+    .default('BAA6p-STRM_0Nyp2NQlk3uD9PuoJ_pq--DjvqXnmj0iTugwnLwq3qlenbCIiURIF_XvjavO1ZqVF2SOSzU'),
 
   PAYPAL_CLIENT_SECRET: z
     .string({
       required_error: 'PAYPAL_CLIENT_SECRET is required',
       invalid_type_error: 'PAYPAL_CLIENT_SECRET must be a string',
     })
-    .min(1, 'PAYPAL_CLIENT_SECRET cannot be empty'),
+    .min(1, 'PAYPAL_CLIENT_SECRET cannot be empty')
+    .default('ELnWHkUxrSqbdYbzelotJhHJrzs4qHy20QTasTxDDj0GVe9z6QltGYKK3wPQiq4S1vP8ck9issJR1FCC'),
 
   PAYPAL_ENV: z.literal('sandbox', {
     errorMap: () => ({
@@ -42,6 +44,17 @@ export const envSchema = z.object({
       .int('PORT must be an integer')
       .positive('PORT must be a positive integer')
   ),
+
+  MONGODB_URI: z
+    .string({
+      required_error: 'MONGODB_URI is required',
+      invalid_type_error: 'MONGODB_URI must be a string',
+    })
+    .min(1, 'MONGODB_URI cannot be empty'),
+
+  PAYPAL_WEBHOOK_ID: z.string().optional().default(''),
+
+  GEMINI_API_KEY: z.string().optional().default(''),
 });
 
 export type Env = z.infer<typeof envSchema>;

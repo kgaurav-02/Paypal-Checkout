@@ -112,8 +112,324 @@
 
       <button type="button" id="btn-reset" class="btn-reset">Make Another Purchase</button>
     </section>
+
+    <!-- PayPilot Transactions View (Step 4) -->
+    <section id="transactions-section" class="dashboard-panel" style="margin-top: 32px;">
+      <div class="panel-header">
+        <div>
+          <h2>PayPilot Transactions</h2>
+          <div class="data-source-tag">Source: local database (sandbox orders)</div>
+        </div>
+        <button type="button" id="btn-refresh-transactions" class="btn-secondary">Refresh</button>
+      </div>
+
+      <!-- Current Month Summary Cards -->
+      <div id="transactions-summary" class="summary-cards">
+        <div class="summary-card">
+          <div class="card-label">Total Volume (Month)</div>
+          <div class="card-value" id="summary-total-volume">$0.00 USD</div>
+        </div>
+        <div class="summary-card">
+          <div class="card-label">Total Orders</div>
+          <div class="card-value" id="summary-total-orders">0</div>
+        </div>
+        <div class="summary-card">
+          <div class="card-label">Completed</div>
+          <div class="card-value" id="summary-completed-orders">0 ($0.00)</div>
+        </div>
+        <div class="summary-card">
+          <div class="card-label">Pending Approval</div>
+          <div class="card-value" id="summary-pending-orders">0 ($0.00)</div>
+        </div>
+      </div>
+
+      <!-- Filter Controls -->
+      <div class="table-filter-bar">
+        <label for="transaction-status-filter">Filter by Status:</label>
+        <select id="transaction-status-filter" class="filter-select">
+          <option value="">All Statuses</option>
+          <option value="COMPLETED">COMPLETED</option>
+          <option value="CREATED">CREATED</option>
+          <option value="PENDING_APPROVAL">PENDING_APPROVAL</option>
+          <option value="APPROVED">APPROVED</option>
+          <option value="REJECTED">REJECTED</option>
+        </select>
+      </div>
+
+      <!-- Transactions List Table -->
+      <div class="table-responsive">
+        <table class="data-table" id="transactions-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Status</th>
+              <th>Amount</th>
+              <th>Capture ID</th>
+              <th>Order ID</th>
+            </tr>
+          </thead>
+          <tbody id="transactions-tbody">
+            <tr>
+              <td colspan="5" class="empty-cell">Loading transactions...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Guardian Dashboard (Step 5) -->
+    <section id="guardian-section" class="dashboard-panel" style="margin-top: 32px;">
+      <div class="panel-header">
+        <div>
+          <h2>Guardian Approvals & Policy</h2>
+          <div class="panel-subtitle">Administrative approval workflow and immutable audit log</div>
+        </div>
+        <button type="button" id="btn-refresh-guardian" class="btn-secondary">Refresh</button>
+      </div>
+
+      <!-- Pending Approvals Panel -->
+      <div class="sub-panel">
+        <h3>Pending Approvals (Requires Human Review)</h3>
+        <div class="table-responsive">
+          <table class="data-table" id="approvals-table">
+            <thead>
+              <tr>
+                <th>Request ID</th>
+                <th>Amount</th>
+                <th>Reason</th>
+                <th>Created</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="approvals-tbody">
+              <tr>
+                <td colspan="5" class="empty-cell">No pending approvals.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Audit Log Panel -->
+      <div class="sub-panel" style="margin-top: 24px;">
+        <h3>Audit Log (Newest First)</h3>
+        <div class="table-responsive">
+          <table class="data-table" id="audit-table">
+            <thead>
+              <tr>
+                <th>Timestamp</th>
+                <th>Action</th>
+                <th>Actor</th>
+                <th>Entity ID</th>
+                <th>Details</th>
+              </tr>
+            </thead>
+            <tbody id="audit-tbody">
+              <tr>
+                <td colspan="5" class="empty-cell">Loading audit logs...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- FraudShield Intelligence Section (Phase 7) -->
+    <section id="fraudshield-section" class="dashboard-panel" style="margin-top: 32px;">
+      <div class="panel-header">
+        <div>
+          <h2>FraudShield Intelligence</h2>
+          <div class="data-source-tag" style="background-color: #fef3c7; color: #92400e; border-color: #fde68a;">
+            Local rule-based assessment. Not a PayPal fraud verdict.
+          </div>
+        </div>
+        <button type="button" id="btn-refresh-risk" class="btn-secondary">Refresh</button>
+      </div>
+
+      <!-- Risk Summary Cards -->
+      <div class="summary-cards" id="risk-summary-cards">
+        <div class="summary-card">
+          <div class="card-label">Total Assessed</div>
+          <div class="card-value" id="risk-total-assessed">0</div>
+        </div>
+        <div class="summary-card">
+          <div class="card-label">Low Risk</div>
+          <div class="card-value" style="color: var(--color-success);" id="risk-low-count">0</div>
+        </div>
+        <div class="summary-card">
+          <div class="card-label">Moderate Risk</div>
+          <div class="card-value" style="color: var(--color-amber);" id="risk-moderate-count">0</div>
+        </div>
+        <div class="summary-card">
+          <div class="card-label">High / Critical</div>
+          <div class="card-value" style="color: var(--color-danger);" id="risk-high-count">0</div>
+        </div>
+      </div>
+
+      <!-- Risk Assessments Table -->
+      <div class="table-responsive">
+        <table class="data-table" id="risk-table">
+          <thead>
+            <tr>
+              <th>Order ID</th>
+              <th>Score</th>
+              <th>Classification</th>
+              <th>Triggered Reasons</th>
+              <th>Action</th>
+              <th>Assessed</th>
+            </tr>
+          </thead>
+          <tbody id="risk-tbody">
+            <tr>
+              <td colspan="6" class="empty-cell">No risk assessments recorded yet.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- FreelancerPay Section (Phase 7) -->
+    <section id="freelancer-section" class="dashboard-panel" style="margin-top: 32px;">
+      <div class="panel-header">
+        <div>
+          <h2>FreelancerPay</h2>
+          <div class="panel-subtitle">Clients, Projects & Invoices with Server-Authoritative Totals</div>
+        </div>
+        <button type="button" id="btn-refresh-freelancer" class="btn-secondary">Refresh</button>
+      </div>
+
+      <!-- Quick Add Client & Create Invoice Forms -->
+      <div class="summary-cards" style="grid-template-columns: 1fr 1.5fr;">
+        <!-- New Client Form -->
+        <div class="summary-card">
+          <h4 style="margin-bottom: 10px; color: var(--primary-blue);">Add New Client</h4>
+          <form id="form-add-client">
+            <div style="margin-bottom: 8px;">
+              <input type="text" id="client-name-input" placeholder="Client Name" required class="form-input" style="width: 100%; padding: 6px 10px; border: 1px solid var(--border-color); border-radius: 6px;">
+            </div>
+            <div style="margin-bottom: 8px;">
+              <input type="email" id="client-email-input" placeholder="Client Email" required class="form-input" style="width: 100%; padding: 6px 10px; border: 1px solid var(--border-color); border-radius: 6px;">
+            </div>
+            <div style="margin-bottom: 8px;">
+              <input type="text" id="client-company-input" placeholder="Company (optional)" class="form-input" style="width: 100%; padding: 6px 10px; border: 1px solid var(--border-color); border-radius: 6px;">
+            </div>
+            <button type="submit" class="btn-secondary" style="width: 100%; background-color: #f1f5f9;">+ Save Client</button>
+          </form>
+        </div>
+
+        <!-- Create Invoice Form -->
+        <div class="summary-card">
+          <h4 style="margin-bottom: 10px; color: var(--primary-blue);">Create Draft Invoice</h4>
+          <form id="form-create-invoice">
+            <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+              <select id="invoice-client-select" required class="filter-select" style="flex: 1;">
+                <option value="">Select Client...</option>
+              </select>
+              <input type="date" id="invoice-due-date" required class="filter-select" style="flex: 1;">
+            </div>
+            <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+              <input type="text" id="invoice-item-desc" placeholder="Service Description" required class="form-input" style="flex: 2; padding: 6px 10px; border: 1px solid var(--border-color); border-radius: 6px;">
+              <input type="number" id="invoice-item-qty" placeholder="Qty" value="1" min="1" required class="form-input" style="flex: 0.8; padding: 6px 10px; border: 1px solid var(--border-color); border-radius: 6px;">
+              <input type="number" step="0.01" id="invoice-item-price" placeholder="Unit Price ($)" min="0" required class="form-input" style="flex: 1; padding: 6px 10px; border: 1px solid var(--border-color); border-radius: 6px;">
+            </div>
+            <button type="submit" class="btn-secondary" style="width: 100%; background-color: #0284c7; color: #ffffff; border-color: #0284c7;">Create Invoice (Server Computes Total)</button>
+          </form>
+        </div>
+      </div>
+
+      <!-- Invoices List Table -->
+      <div class="sub-panel" style="margin-top: 16px;">
+        <h3>Invoices</h3>
+        <div class="table-responsive">
+          <table class="data-table" id="invoices-table">
+            <thead>
+              <tr>
+                <th>Invoice #</th>
+                <th>Client</th>
+                <th>Total</th>
+                <th>Due Date</th>
+                <th>Status</th>
+                <th>PayPal ID</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="invoices-tbody">
+              <tr>
+                <td colspan="7" class="empty-cell">No invoices created yet.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- AI Assistant Panel -->
+    <section id="assistant-section" class="dashboard-panel" style="margin-top: 32px;">
+      <div class="panel-header">
+        <div>
+          <h2>PayPilot AI Assistant</h2>
+          <span class="source-badge">Automated Backend Tool Routing</span>
+        </div>
+        <span class="source-badge" style="background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0;">Gated by Guardian Policies</span>
+      </div>
+
+      <!-- Suggested Prompts -->
+      <div style="margin-bottom: 16px;">
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 8px;">Suggested Actions:</p>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;" id="assistant-suggestions">
+          <button type="button" class="btn-filter prompt-btn" data-prompt="summarize this month">Summarize this month</button>
+          <button type="button" class="btn-filter prompt-btn" data-prompt="pending approvals">Pending approvals</button>
+          <button type="button" class="btn-filter prompt-btn" data-prompt="risk summary">Risk summary</button>
+          <button type="button" class="btn-filter prompt-btn" data-prompt="unpaid invoices">Unpaid invoices</button>
+          <button type="button" class="btn-filter prompt-btn" data-prompt="list clients">List clients</button>
+        </div>
+      </div>
+
+      <!-- Assistant Input Form -->
+      <form id="assistant-form" style="display: flex; gap: 8px; margin-bottom: 16px;">
+        <input
+          type="text"
+          id="assistant-input"
+          placeholder="Ask a question or enter a command (e.g. 'summarize this month', 'risk summary')..."
+          required
+          class="form-input"
+          style="flex: 1; padding: 10px 14px; font-size: 14px; border: 1px solid var(--border-color); border-radius: 8px;"
+        />
+        <button
+          type="submit"
+          id="assistant-submit-btn"
+          class="btn-primary"
+          style="padding: 10px 20px; font-size: 14px;"
+        >
+          Send
+        </button>
+      </form>
+
+      <!-- Loading State -->
+      <div id="assistant-loading" style="display: none; align-items: center; gap: 8px; margin-bottom: 16px; color: var(--primary-blue);">
+        <div class="spinner" style="width: 18px; height: 18px; border-width: 2px;"></div>
+        <span style="font-size: 14px;">Assistant is routing and executing tool...</span>
+      </div>
+
+      <!-- Assistant Output Display -->
+      <div id="assistant-response-card" class="summary-card" style="display: none; border-left: 4px solid var(--primary-blue);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <h4 id="assistant-response-title" style="margin: 0; color: var(--text-primary);">Response</h4>
+          <span id="assistant-tool-tag" class="status-badge" style="display: none; background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe;"></span>
+        </div>
+        <p id="assistant-reply-text" style="font-size: 14px; line-height: 1.5; margin: 0 0 10px 0; color: var(--text-primary);"></p>
+
+        <!-- Structured Result View (Formatted, Not Raw JSON) -->
+        <div id="assistant-structured-result" style="display: none; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px; font-size: 13px;">
+        </div>
+      </div>
+    </section>
   </main>
 
+  <!-- PayPal JavaScript SDK:
+       <script src="https://www.paypal.com/sdk/js?client-id=__CLIENT_ID__&currency=USD&intent=capture"></script>
+       Injected dynamically before /app.js at runtime using paypalClientId from /api/config.
+  -->
   <script src="/app.js"></script>
 </body>
 </html>
